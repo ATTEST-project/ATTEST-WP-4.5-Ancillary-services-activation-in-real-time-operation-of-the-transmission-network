@@ -1,0 +1,365 @@
+reset;
+reset options;
+option presolve_eps 1e-4;
+
+###### Input data file - user input required ######
+include input_data.run
+
+###### Security assesment - user input required ######
+#include security_assesment.run
+
+###### Problem definition ######
+problem SC_AC_OPF;
+
+#Current time period - user should set this
+param tc symbolic;
+let tc := $current_time_period;
+
+#Variables for present time step
+#Network variables
+var Vd_p   {bus} := 1;
+var Vq_p   {bus};
+var P_p    {(l,n,m) in branch};
+var Q_p    {(l,n,m) in branch};
+
+#Penalty variables
+var vminpen_p {bus} >=0, <= 0.05;
+var vmaxpen_p {bus} >=0, <= 0.05;
+var vminpen_p2 {bus} >=0;
+var vmaxpen_p2 {bus} >=0;
+var spen_p {l in line} >=0, <= Sl_max[l]*0.1;
+var spen_p2 {line} >=0;
+
+#DG variables
+#var PupDG_p  {bus} >=0;
+var PdnDG_p  {n in bus} >=0, <= DG_P[n,tc]-curtail_p[n,tc];
+#var QupDG_p  {bus} >=0;
+#var QdnDG_p  {bus} >=0;
+
+#Flex load variables
+var PupL_p  {n in bus} >=0, <= L_load[n,tc]-L_min[n,tc];
+var PdnL_p  {n in bus} >=0, <= L_max[n,tc]-L_load[n,tc];
+
+#Storage variables
+var PupS_p  {n in bus} >=0, <= ((if tc="t1" then S_SoEmax[n]/2 else S_SoE_p[n,prev(tc,time)]) -S_dis_p[n,tc]/0.95+S_ch_p[n,tc]*0.95)/(card(time_MPC)+1);
+var PdnS_p  {n in bus} >=0, <= (S_SoEmax[n]+(if tc="t1" then -S_SoEmax[n]/2 else -S_SoE_p[n,prev(tc,time)]) -S_ch_p[n,tc]*0.95+S_dis_p[n,tc]/0.95)/(card(time_MPC)+1);
+var QupS_p  {n in bus} >=0, <= S_SoEmax[n];
+var QdnS_p  {n in bus} >=0, <= S_SoEmax[n];
+var SoE_p   {n in bus} >=0, <= S_SoEmax[n];
+
+#Primary reserve
+var dP_p {gen};
+var df_p;
+
+#Primary voltage magnitude control
+var Q_PVgen_p {n in bus: btype[n]>=2};
+
+
+#Variables for future time steps and scenarios
+#Network variables
+var Vd_f   {time_MPC, bus, scen} := 1;
+var Vq_f   {time_MPC, bus, scen};
+var P_f    {time_MPC, (l,n,m) in branch, scen};
+var Q_f    {time_MPC, (l,n,m) in branch, scen};
+
+#Penalty variables
+var vminpen_f {time_MPC,bus,scen} >=0, <= 0.05;
+var vmaxpen_f {time_MPC,bus,scen} >=0, <= 0.05;
+var vminpen_f2 {time_MPC,bus,scen} >=0;
+var vmaxpen_f2 {time_MPC,bus,scen} >=0;
+var spen_f {time_MPC,l in line,scen} >=0, <= Sl_max[l]*0.1;
+var spen_f2 {time_MPC,line,scen} >=0;
+
+#DG variables
+#var PupDG_f  {time_MPC,flex_gens,scen} >=0;
+var PdnDG_f  {time_MPC,n in bus,scen} >=0, <= DG_P[n,tc]-curtail_p[n,tc];
+#var QupDG_f  {time_MPC,flex_gens,scen} >=0;
+#var QdnDG_f  {time_MPC,flex_gens,scen} >=0;
+
+#Flex load variables
+var PupL_f  {time_MPC,n in bus,scen} >=0, <= L_load[n,tc]-L_min[n,tc];
+var PdnL_f  {time_MPC,n in bus,scen} >=0, <= L_max[n,tc]-L_load[n,tc];
+
+#Storage variables
+var PupS_f  {time_MPC,n in bus,scen} >=0, <= ((if tc="t1" then S_SoEmax[n]/2 else S_SoE_p[n,prev(tc,time)]) -S_dis_p[n,tc]/0.95+S_ch_p[n,tc]*0.95)/(card(time_MPC)+1);
+var PdnS_f  {time_MPC,n in bus,scen} >=0, <= (S_SoEmax[n]+(if tc="t1" then -S_SoEmax[n]/2 else -S_SoE_p[n,prev(tc,time)]) -S_ch_p[n,tc]*0.95+S_dis_p[n,tc]/0.95)/(card(time_MPC)+1);
+var QupS_f  {time_MPC,n in bus,scen} >=0, <= S_SoEmax[n];
+var QdnS_f  {time_MPC,n in bus,scen} >=0, <= S_SoEmax[n];
+var SoE_f   {time_MPC,n in bus,scen} >=0, <= S_SoEmax[n];
+
+#Primary reserve
+var dP_f {time_MPC,gen,scen};
+var df_f {time_MPC,scen};
+
+#Primary voltage magnitude control
+var Q_PVgen_f {time_MPC, n in bus, scen: btype[n]>=2};
+
+#Objective function
+minimize QPOF: #DGs
+			   sum {n in bus} (PdnDG_p[n]^2*DG_c2[n] + PdnDG_p[n]*DG_c1[n] + DG_c0[n])
+              +sum {t in time_MPC, n in bus, sc in scen}
+                   (PdnDG_f[t,n,sc]^2*DG_c2[n] + PdnDG_f[t,n,sc]*DG_c1[n] + DG_c0[n])/2
+
+               #Loads               
+			  +sum {n in bus}
+                              (
+                               PupL_p[n]*L_cdec[n]
+                              +PdnL_p[n]*L_cinc[n]
+                              )
+              +sum {t in time_MPC, n in bus, sc in scen}
+                              (
+                               PupL_f[t,n,sc]*L_cdec[n]
+                              +PdnL_f[t,n,sc]*L_cinc[n]
+                              )/2
+               
+               #Storage
+              +sum {n in bus} 
+                              (PupS_p[n]^2*S_c2[n] + PupS_p[n]*S_c1[n] + S_c0[n]
+                              +PdnS_p[n]^2*S_c2[n] + PdnS_p[n]*S_c1[n] + S_c0[n]
+                              +S_c1[n]/100*(QupS_p[n]+QdnS_p[n]) )
+              +sum {t in time_MPC, n in bus, sc in scen} 
+                              (PupS_f[t,n,sc]^2*S_c2[n] + PupS_f[t,n,sc]*S_c1[n] + S_c0[n]
+                              +PdnS_f[t,n,sc]^2*S_c2[n] + PdnS_f[t,n,sc]*S_c1[n] + S_c0[n]
+                              +S_c1[n]/100*(QupS_f[t,n,sc]+QdnS_f[t,n,sc]) )/2              
+               
+               #Voltage
+              +sum {n in bus} (vminpen_p[n]+vmaxpen_p[n])*4000 
+              +sum {n in bus} (vminpen_p2[n]+vmaxpen_p2[n])*4000*10
+              +sum {t in time_MPC, n in bus, sc in scen} (vminpen_f[t,n,sc]+vmaxpen_f[t,n,sc])/2*4000
+              +sum {t in time_MPC, n in bus, sc in scen} (vminpen_f2[t,n,sc]+vmaxpen_f2[t,n,sc])/2*4000
+               
+               #Lines
+              +sum {l in line} (spen_p[l])*200000
+              +sum {l in line} (spen_p2[l])*200000*10
+              +sum {t in time_MPC, l in line, sc in scen} (spen_f[t,l,sc])/2*200000
+              +sum {t in time_MPC, l in line, sc in scen} (spen_f2[t,l,sc])/2*200000*10;               
+
+
+#Bus balance - present
+subject to bus_p_rec_p {n in bus}:
+ - PdnDG_p[n]
++(PupS_p[n] - PdnS_p[n])
++(PupL_p[n] - PdnL_p[n])
++sum {(n,g) in bus_gen} dP_p[g] + Pinj[n]
+-sum {(l,n,m) in branch} P_p[l,n,m] - sum{(n,sh) in bus_shunt} (Vd_p[n]^2 + Vq_p[n]^2)*gs[sh] = 0;
+
+subject to bus_q_rec_p {n in bus}:
++(QupS_p[n] - QdnS_p[n])
++Qinj[n] 
++(if btype[n]>=2 then Q_PVgen_p[n] else 0)
+-sum {(l,n,m) in branch} Q_p[l,n,m] + sum{(n,sh) in bus_shunt} (Vd_p[n]^2 + Vq_p[n]^2)*bs[sh] = 0;
+
+subject to PV_bus_volt_p {n in bus: btype[n]>=2}:
+Vd_p[n]^2 + Vq_p[n]^2 = VoltM[n]^2;
+
+#Bus balance - future
+subject to bus_p_rec_f {t in time_MPC, n in bus, sc in scen}:
+ (- PdnDG_f[t,n,sc])
++(PupS_f[t,n,sc] - PdnS_f[t,n,sc])
++(PupL_f[t,n,sc] - PdnL_f[t,n,sc])
++sum {(n,g) in bus_gen} dP_f[t,g,sc] +Pinj[n]*scen_load[t,sc]
+-sum {(l,n,m) in branch} P_f[t,l,n,m,sc] - sum{(n,sh) in bus_shunt} (Vd_f[t,n,sc]^2 + Vq_f[t,n,sc]^2)*gs[sh] = 0;
+
+subject to bus_q_rec_f {t in time_MPC, n in bus, sc in scen}:
++(QupS_f[t,n,sc] - QdnS_f[t,n,sc])
++Qinj[n]*scen_load[t,sc]
++(if btype[n]>=2 then Q_PVgen_f[t,n,sc] else 0)
+-sum {(l,n,m) in branch} Q_f[t,l,n,m,sc] + sum{(n,sh) in bus_shunt} (Vd_f[t,n,sc]^2 + Vq_f[t,n,sc]^2)*bs[sh] = 0;
+
+subject to PV_bus_volt_f {t in time_MPC, n in bus, sc in scen: btype[n]>=2}:
+ Vd_f[t,n,sc]^2 + Vq_f[t,n,sc]^2 = VoltM[n]^2;
+
+ 
+#Power flow equations - present
+subject to power_f_rec_p {(l,n,m) in branch_from}:
+ P_p[l,n,m] = (Vd_p[n]^2+Vq_p[n]^2)*(gl[l]+gl_fr[l])/(tap[l]^2)
++ ( 
+  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/(tap[l]^2);
+ 
+subject to power_t_rec_p {(l,n,m) in branch_to}:
+ P_p[l,n,m] = (Vd_p[n]^2+Vq_p[n]^2)*(gl[l]+gl_to[l])
++ ( 
+  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
+ 			
+subject to reactive_f_rec_p {(l,n,m) in branch_from}:
+ Q_p[l,n,m] = -(Vd_p[n]^2+Vq_p[n]^2)*(bl[l]+bl_fr[l])/(tap[l]^2) 
++ (
+  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
+ 			
+subject to reactive_t_rec_p {(l,n,m) in branch_to}:
+ Q_p[l,n,m] = -(Vd_p[n]^2+Vq_p[n]^2)*(bl[l]+bl_to[l]) 
++ (
+  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
+
+
+
+
+#Power flow equations - future
+subject to power_f_rec_f {t in time_MPC, (l,n,m) in branch_from, sc in scen}:
+ P_f[t,l,n,m,sc] = (Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(gl[l]+gl_fr[l])/(tap[l]^2)
++ ( 
+  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/(tap[l]^2);
+ 
+subject to power_t_rec_f {t in time_MPC, (l,n,m) in branch_to, sc in scen}:
+ P_f[t,l,n,m,sc] = (Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(gl[l]+gl_to[l])
++ ( 
+  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
+ 			
+subject to reactive_f_rec_f {t in time_MPC, (l,n,m) in branch_from, sc in scen}:
+ Q_f[t,l,n,m,sc] = -(Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(bl[l]+bl_fr[l])/(tap[l]^2) 
++ (
+  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
+ 			
+subject to reactive_t_rec_f {t in time_MPC, (l,n,m) in branch_to, sc in scen}:
+ Q_f[t,l,n,m,sc] = -(Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(bl[l]+bl_to[l]) 
++ (
+  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
+
+
+
+#Line power flow limits - present and future
+subject to linemax_pol_p {(l,n,m) in branch}:
+ P_p[l,n,m]^2 + Q_p[l,n,m]^2 <= (Sl_max[l]+spen_p[l]+spen_p2[l])^2;
+ 
+ 
+subject to linemax_pol_f {t in time_MPC, (l,n,m) in branch, sc in scen}:
+ P_f[t,l,n,m,sc]^2 + Q_f[t,l,n,m,sc]^2 <= (Sl_max[l]+spen_f[t,l,sc]+spen_f2[t,l,sc])^2;
+ 
+ 
+#Voltage limits - present and future
+subject to volt12_rec_p_1 {n in bus}:
+ (vmin[n]-vminpen_p[n]-vminpen_p2[n])^2 <= Vd_p[n]^2 + Vq_p[n]^2;
+ 
+subject to volt12_rec_p_2 {n in bus}:
+                                           Vd_p[n]^2 + Vq_p[n]^2 <= (vmax[n]+vmaxpen_p[n]+vmaxpen_p2[n])^2;
+
+
+subject to volt12_rec_f_1 {t in time_MPC, n in bus, sc in scen}:
+ (vmin[n]-vminpen_f[t,n,sc]-vminpen_f2[t,n,sc])^2 <= Vd_f[t,n,sc]^2 + Vq_f[t,n,sc]^2;
+ 
+subject to volt12_rec_f_2 {t in time_MPC, n in bus, sc in scen}:
+                                                     Vd_f[t,n,sc]^2 + Vq_f[t,n,sc]^2 <= (vmax[n]+vmaxpen_f[t,n,sc]+vmaxpen_f2[t,n,sc])^2;
+
+
+
+
+#Reference bus - present and future
+subject to ref_Vd_p {n in refbus}:
+ Vd_p[n] >= 0;
+
+subject to ref_Vq_p {n in refbus}:
+ Vq_p[n] = 0;
+
+subject to ref_Vd_f {t in time_MPC, n in refbus, sc in scen}:
+ Vd_f[t,n,sc] >= 0;
+
+subject to ref_Vq_f {t in time_MPC, n in refbus, sc in scen}:
+ Vq_f[t,n,sc] = 0;
+
+
+
+#Storage SoE equation - present and future
+subject to S_SoE_limit_p {n in bus}:
+ SoE_p[n] = S_SoE_p[n,tc] + (PdnS_p[n]*S_etach[n] - PupS_p[n]/S_etadis[n])/(card(time_MPC)+1);
+
+subject to S_SoE_limit_f {t in time_MPC, n in bus, sc in scen}:
+ SoE_f[t,n,sc] = (if ord(t)=1 then SoE_p[n] else SoE_f[prev(t),n,sc]) + (PdnS_f[t,n,sc]*S_etach[n] - PupS_f[t,n,sc]/S_etadis[n])/(card(time_MPC)+1);
+
+
+#frequency regulation - present and future
+subject to primary_p {g in gen}:
+ -(pg_max[g]-pg_min[g])*df_p/(50*0.05) = dP_p[g];
+
+
+subject to primary_f {t in time_MPC, g in gen, sc in scen}:
+ -(pg_max[g]-pg_min[g])*df_f[t,sc]/(50*0.05) = dP_f[t,g,sc];
+
+
+#Uncomment to inactivate the reserves
+/*
+fix {n in bus} PupL_p[n] := 0;
+fix {n in bus} PdnL_p[n] := 0;
+fix {n in bus} PdnDG_p[n] := 0;
+fix {n in bus} PupS_p[n] := 0;
+fix {n in bus} PdnS_p[n] := 0;
+fix {n in bus} QupS_p[n];
+fix {n in bus} QdnS_p[n];
+
+fix {t in time_MPC, n in refbus, sc in scen} PupL_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} PdnL_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} PdnDG_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} PdnS_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} PupS_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} QupS_f[t,n,sc] := 0;
+fix {t in time_MPC, n in refbus, sc in scen} QdnS_f[t,n,sc] := 0;
+*/
+
+
+#Solve statement
+option solver ipopt;
+option ipopt_options "linear_solver='ma27'";
+solve SC_AC_OPF;
+
+display QPOF;
+
+###### Output file ######
+#Define output file
+param output_file symbolic = "trans_decisions.xlsx";
+
+#Select transmission bus for output - user input
+param output_bus symbolic;
+let output_bus := $output_distribution_bus;
+
+#Total reserve activation activation parameter
+let Pup_tot := sum {n in bus: n = output_bus} PupL_p[n].val + sum {n in bus: n = output_bus} PupS_p[n].val;
+let Pdn_tot := sum {n in bus: n = output_bus} PdnL_p[n].val + sum {n in bus: n = output_bus} PdnS_p[n].val + sum {n in bus: n = output_bus} PdnDG_p[n].val;
+let Qup_tot := sum {n in bus: n = output_bus} QupS_p[n].val;
+let Qdn_tot := sum {n in bus: n = output_bus} QdnS_p[n].val;
+
+#Output statement
+table P_DG_p OUT "amplxl" (output_file):
+	[flex_gens], PdnDG_p;
+table P_L_p OUT "amplxl" (output_file):
+	[flex_loads], PupL_p,PdnL_p;
+table P_S_p OUT "amplxl" (output_file):
+	[flex_storage], PupS_p,PdnS_p,QupS_p,QdnS_p;
+table R_activation OUT "amplxl" (output_file):
+	[], Pup_tot,Pdn_tot,Qup_tot,Qdn_tot;
+
+
+write table P_DG_p;
+write table P_L_p;
+write table P_S_p;
+write table R_activation;
+
+
+###### Analysis ######
+display sum {(l,n,m) in branch_from:sqrt(P_p[l,n,m]^2 + Q_p[l,n,m]^2)>Sl_max[l]+0.001} 1;
+display sum {(l,n,m) in branch:sqrt(P_p[l,n,m]^2 + Q_p[l,n,m]^2)>Sl_max[l]+0.001} (sqrt(P_p[l,n,m]^2 + Q_p[l,n,m]^2)-Sl_max[l])/2*100;
+
+display sum {n in bus: sqrt(Vd_p[n]^2 + Vq_p[n]^2)>vmax[n]+0.0005} 1;
+display sum {n in bus: sqrt(Vd_p[n]^2 + Vq_p[n]^2)>vmax[n]+0.0005} (sqrt(Vd_p[n]^2 + Vq_p[n]^2)-vmax[n]);
+
+display sum {n in bus: sqrt(Vd_p[n]^2 + Vq_p[n]^2)<vmin[n]-0.0005} 1;
+display sum {n in bus: sqrt(Vd_p[n]^2 + Vq_p[n]^2)<vmin[n]-0.0005} (sqrt(Vd_p[n]^2 + Vq_p[n]^2)-vmin[n]);
+
+display {n in bus:sqrt(Vd_p[n]^2 + Vq_p[n]^2)>vmax[n]+0.0005} sqrt(Vd_p[n]^2 + Vq_p[n]^2)-vmax[n];
+display {n in bus:sqrt(Vd_p[n]^2 + Vq_p[n]^2)<vmin[n]-0.0005} sqrt(Vd_p[n]^2 + Vq_p[n]^2)-vmin[n];
+display {(l,n,m) in branch:sqrt(P_p[l,n,m]^2 + Q_p[l,n,m]^2)>Sl_max[l]+0.001} sqrt(P_p[l,n,m]^2 + Q_p[l,n,m]^2)/Sl_max[l];
+
+display {n in bus: PupL_p[n]>0.001} PupL_p[n];
+display {n in bus: PdnL_p[n]>0.001} PdnL_p[n];
+display {n in bus: PdnDG_p[n]>0.001} PdnDG_p[n];
+display {n in bus: PupS_p[n]>0.001} PupS_p[n];
+display {n in bus: PdnS_p[n]>0.001} PdnS_p[n];
+display {n in bus: QupS_p[n]>0.001} QupS_p[n];
+display {n in bus: QdnS_p[n]>0.001} QdnS_p[n];
+

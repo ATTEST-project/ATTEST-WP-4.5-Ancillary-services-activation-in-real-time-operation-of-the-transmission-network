@@ -1,0 +1,265 @@
+reset;
+
+###### Input files - user input ######
+
+#Network file
+param network_data_file symbolic = "data\network_data.xlsx";
+
+#Flexibility data - output of T4.4 tool
+param flexibity_devices_tech_char_file symbolic;
+let flexibity_devices_tech_char_file  := $flex_devices_tech_char_file;
+
+param PV_profile_file symbolic;
+let PV_profile_file := $PV_production_profile_file;
+
+param flexibity_devices_expected_states_file symbolic;
+let flexibity_devices_expected_states_file := $flexibity_devices_states_file;
+
+param curtailment_file symbolic;
+let curtailment_file := $DA_curtailment_file;
+
+
+#State estimation file - output of T4.3 tool
+param state_estimation_file symbolic;
+let state_estimation_file := $state_estimation_csv_file;
+
+
+###### Loading network data ######
+set time ordered default setof {t in 1..24} "t" & t;
+set time_MPC ordered default setof {rt in 1..3} "rt" & rt;
+set scen := {"sc1","sc2"};
+set bus;
+set gen;
+set line;
+set loads;
+set shunt;
+set buspair within {bus,bus};
+set branch_from within {line,bus,bus};
+set branch_to within {line,bus,bus}= setof {(l,n,m) in branch_from} (l,m,n);
+set branch within {line,bus,bus} = branch_from union branch_to;
+set refbus within {bus};
+set bus_gen within {bus,gen};
+set bus_load within {bus,loads};
+set bus_shunt within {bus,shunt};
+param scen_load {time_MPC,scen};
+param vmin {bus};
+param vmax {bus};
+param area {bus};
+param vm {bus};
+param va {bus};
+param pg_max {gen};
+param pg_min {gen};
+param qg_max {gen};
+param qg_min {gen};
+param c2 {gen};
+param c1 {gen};
+param c0 {gen};
+param pg {gen};
+param qg {gen};
+param vg {gen};
+param bl {line};
+param gl {line};
+param bl_fr {line};
+param bl_to {line};
+param gl_fr {line};
+param gl_to {line};
+param Sl_max {line};
+param Il_max {line};
+param tap {line};
+param shift {line};
+param tr {line};
+param ti {line};
+param pd {loads};
+param qd {loads};
+param bs {shunt};
+param gs {shunt};
+param angmin {buspair};
+param angmax {buspair};
+param load_f {time};
+param btype {bus};
+data;
+param scen_load : 
+	"sc1"		"sc2" :=
+"rt1" 1.01	0.99 
+"rt2" 1.02	0.98
+"rt3" 1.03  0.97;
+model;
+
+table Bus IN "amplxl" (network_data_file):
+	bus <- [n], vmin, vmax, area ,vm, va, btype;
+	
+table Gen IN "amplxl" (network_data_file):
+	gen <- [g], pg_max, pg_min, qg_max ,qg_min, c2, c1, c0, pg, qg, vg;
+	
+table Branch IN "amplxl" (network_data_file):
+	line <- [l], bl, gl, bl_fr, bl_to, gl_fr, gl_to, Sl_max, tap, shift;
+
+table Load IN "amplxl" (network_data_file):
+	loads <- [lo], pd, qd;
+	
+table Shunt IN "amplxl" (network_data_file):
+	shunt <- [sh], bs, gs;	
+	
+table Buspair IN "amplxl" (network_data_file):
+	buspair <- [n, m], angmax, angmin;
+	
+table Branch_from IN "amplxl" (network_data_file):
+	branch_from <- [l, n, m];
+	
+table Refbus IN "amplxl" (network_data_file):
+	refbus <- [n];
+	
+table Bus_gen IN "amplxl" (network_data_file):
+	bus_gen <- [n, g];	
+	
+table Bus_load IN "amplxl" (network_data_file):
+	bus_load <- [n, lo];
+	
+table Bus_shunt IN "amplxl" (network_data_file):
+	bus_shunt <- [n, sh];	
+	
+	
+load amplxl.dll;	
+read table Bus;
+read table Gen;
+read table Branch;
+read table Load;
+read table Shunt;
+read table Buspair;
+read table Branch_from;
+read table Refbus;
+read table Bus_gen;
+read table Bus_load;
+read table Bus_shunt;
+
+let {l in line} Il_max[l] := Sl_max[l];
+let {l in line} tr[l]:=tap[l]*cos(shift[l]);
+let {l in line} ti[l]:=tap[l]*sin(shift[l]);
+
+
+###### Loading flexibity devices techical characteristics ######
+
+#set flex_loads within bus;
+param L_tload {time};
+param L_tmin  {time};
+param L_tmax  {time};
+param L_load {bus,time};
+param L_min  {bus,time};
+param L_max  {bus,time};
+param L_cdec {bus} default 100;
+param L_cinc {bus} default 100;
+
+#set flex_gens within {bus};
+param node_ratio {bus} default 0;
+param DG_Pmax {bus} default 0;
+param DG_c2 {bus} default 0;
+param DG_c1 {bus} default 1000;
+param DG_c0 {bus} default 0;
+
+
+#set flex_storage within {bus};
+param S_SoEmax {bus} default 0;
+param S_c2 {bus} default 0;
+param S_c1 {bus} default 100;
+param S_c0 {bus} default 0;
+param S_etach {bus} default 0.9;
+param S_etadis {bus} default 0.9;
+
+table PV_Storage IN "amplxl" (flexibity_devices_tech_char_file):
+	[Node], node_ratio~Node_Ratio, DG_Pmax~"PV_installed_(MW)", S_SoEmax~"Storage_installed_(MWh)";
+
+table EV IN "amplxl" (flexibity_devices_tech_char_file):
+	["Time_(h)"], L_tload~"EV_load_(MW)", L_tmin~"Minimum_EV_load_(MW)", L_tmax~"Maximum_EV_load_(MW)";
+
+
+read table PV_Storage;
+read table EV;
+
+let {n in bus} S_SoEmax[n] := S_SoEmax[n]/100;
+let {t in time, n in bus} L_load[n,t] := L_tload[t]*node_ratio[n]/100;
+let {t in time, n in bus} L_min[n,t]  := L_tmin[t]*node_ratio[n]/100;
+let {t in time, n in bus} L_max[n,t]  := L_tmax[t]*node_ratio[n]/100;
+
+
+###### Loading PV profile ######
+param PV_profile {time};
+param DG_P {bus,time};
+
+
+table Sheet1 IN "amplxl" (PV_profile_file):
+	[Hour], PV_profile~PV_power;
+	
+read table Sheet1;
+
+let {t in time, n in bus} DG_P[n,t] := DG_Pmax[n]/100*PV_profile[t]/100;
+
+
+
+###### Loading flexibity devices expected states ######
+
+param curtail_p {bus,time} default 0;
+param S_ch_p {bus,time} default 0;
+param S_dis_p {bus,time} default 0;
+param S_SoE_p {bus,time} default 0;
+param L_OD_p {bus,time} default 0;
+param L_UD_p {bus,time} default 0;
+
+table ESS_CH_MW IN "amplxl" (flexibity_devices_expected_states_file) "2D":
+	[Nodes,time], S_ch_p;
+
+table ESS_DCH_MW IN "amplxl" (flexibity_devices_expected_states_file) "2D":
+	[Nodes,time], S_dis_p;
+
+table ESS_SOC IN "amplxl" (flexibity_devices_expected_states_file) "2D":
+	[Nodes,time], S_SoE_p;
+
+table FL_OD_MW IN "amplxl" (flexibity_devices_expected_states_file) "2D":
+	[Nodes,time], L_OD_p;
+
+table FL_UD_MW IN "amplxl" (flexibity_devices_expected_states_file) "2D":
+	[Nodes,time], L_UD_p;
+
+read table ESS_CH_MW;
+read table ESS_DCH_MW;
+read table ESS_SOC;
+read table FL_OD_MW;
+read table FL_UD_MW;
+
+let {n in bus,t in time} S_ch_p[n,t] := S_ch_p[n,t]/100;
+let {n in bus,t in time} S_dis_p[n,t] := S_dis_p[n,t]/100;
+let {n in bus,t in time} S_SoE_p[n,t] := S_SoE_p[n,t]/100;
+let {n in bus,t in time} L_OD_p[n,t] := L_OD_p[n,t]/100;
+let {n in bus,t in time} L_UD_p[n,t] := L_UD_p[n,t]/100;
+
+
+#RES curtailment
+table RES_curtailment IN "amplxl" (curtailment_file) "2D":
+	[RES_nodes,time], curtail_p;
+
+
+read table RES_curtailment;
+
+
+###### Loading state estimation ######
+param Pinj {bus} default 0;
+param Qinj {bus} default 0;
+param VoltM {bus} default 1;
+
+
+table state_estimation IN "amplcsv" (state_estimation_file):
+	[bus], VoltM~vm_pu, Pinj~p_mw, Qinj~q_mvar;	
+
+
+load amplcsv.dll;
+read table state_estimation;
+
+let {n in bus} Pinj[n] := Pinj[n]/100;
+let {n in bus} Qinj[n] := Qinj[n]/100;
+
+
+###### Total transmission activated reserve ######
+param Pup_tot;
+param Pdn_tot;
+param Qup_tot;
+param Qdn_tot;
+

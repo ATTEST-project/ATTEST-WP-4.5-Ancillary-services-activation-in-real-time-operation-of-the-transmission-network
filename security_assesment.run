@@ -1,0 +1,150 @@
+###### Input file - user input ######
+#NN data file
+param NN_data_file symbolic = "data\NN_data_FINAL.xlsx";
+
+###### Loading NN data ######
+set input_l := {"Sm_Pgen_total","Wind","SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])","SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])","SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])","Total_Inertia_SM_On (p.u.*Machine_Mbase [s])"};
+set hidden_l;
+set output_l;
+set maxmin := {"max","min"};
+
+param hidden_w {input_l,hidden_l};
+param hidden_b {hidden_l};
+
+param output_w {hidden_l,output_l};
+param output_b {output_l};
+
+param in_normal {maxmin,input_l};
+param out_normal {maxmin,output_l};
+
+table bias1 IN "amplxl" (NN_data_file):
+	hidden_l <- [bias1], hidden_b~"Bias hidden";
+
+table bias2 IN "amplxl" (NN_data_file):
+	output_l <- [bias2], output_b~"Bias output";
+
+
+table weight1 IN "amplxl" (NN_data_file) "2D":
+	[input_l,hidden_l], hidden_w;
+
+table weight2 IN "amplxl" (NN_data_file) "2D":
+	[hidden_l,output_l], output_w;
+
+
+table normalization1 IN "amplxl" (NN_data_file) "2D":
+	[maxmin,input_l], in_normal;
+
+table normalization2 IN "amplxl" (NN_data_file) "2D":
+	[maxmin,output_l], out_normal;
+
+load amplxl.dll;
+read table bias1;
+read table bias2;
+read table weight1;
+read table weight2;
+read table normalization1;
+read table normalization2;
+
+###### NN constraints ######
+problem SC_AC_OPF;
+
+
+var input {input_l};
+var y1 {j in hidden_l} = sum{i in input_l} hidden_w[i,j]*((input[i]-in_normal["min",i])/(in_normal["max",i]-in_normal["min",i])) + hidden_b[j];
+var x2 {j in hidden_l} = if y1[j]>=-20 then 1/(1+exp(-y1[j])) else 0;
+
+var y2 {k in output_l} = sum{j in hidden_l} output_w[j,k]*x2[j] + output_b[k];
+var output {k in output_l} = y2[k]*(out_normal["max",k]-out_normal["min",k])+out_normal["min",k];
+
+
+
+#subject to nadir_c:
+#output["Nadir"] <= 0.8;
+
+#subject to rocof_c:
+#output["ROCOF"] <= 1;
+
+
+###### Case evaluation - all combinations ######
+let input["Sm_Pgen_total"]:=sum {l in loads} pd[l]*100;
+let input["Wind"]:=2407.799;
+let input["Total_Inertia_SM_On (p.u.*Machine_Mbase [s])"]:=20890.3;
+
+#100 and 011 have switched priorities due to weight values
+#0 - [], 1st – [SC1], 2nd – [SC2], 3rd – [SC3], 4th [SC1, SC2], 5th [SC1, SC3], 6th [SC2, SC3], 7th [SC1, SC2, SC3]
+#Where SC1 = 866.4, SC2 = 1619.8 and SC3 = 2300.0
+
+###### 111 ######
+param sc1 default 1;
+param sc2 default 1;
+param sc3 default 1;
+
+###### 110 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=1; let sc2 := 1; let sc1 := 0;};
+
+###### 101 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=1; let sc2 := 0; let sc1 := 1;};
+
+###### 011 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=0; let sc2 := 1; let sc1 := 1;};
+
+###### 100 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=1; let sc2 := 0; let sc1 := 0;};
+
+###### 010 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=0; let sc2 := 1; let sc1 := 0;};
+
+###### 001 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=1*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=0; let sc2 := 0; let sc1 := 1;};
+
+###### 000 ######
+let input["SC3_bus38_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*2300;
+let input["SC2_bus37_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*1619.8;
+let input["SC1_bus34_Inertia_On (p.u.*Machine_Mbase [s])"]:=0*866.4;
+
+if output["Nadir"] <= 0.8 and output["ROCOF"] <= 1 then 
+{let sc3:=0; let sc2 := 0; let sc1 := 0;};
+
+display sc1;
+display sc2;
+display sc3;
+
+
+
+
+
+
+
+
+
+
