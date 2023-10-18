@@ -180,8 +180,8 @@ subject to power_f_rec_p {(l,n,m) in branch_from}:
 subject to power_t_rec_p {(l,n,m) in branch_to}:
  P_p[l,n,m] = (Vd_p[n]^2+Vq_p[n]^2)*(gl[l]+gl_to[l])
 + ( 
-  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
-+ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
+  (-gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( bl[l]*tr[l]-gl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
  			
 subject to reactive_f_rec_p {(l,n,m) in branch_from}:
  Q_p[l,n,m] = -(Vd_p[n]^2+Vq_p[n]^2)*(bl[l]+bl_fr[l])/(tap[l]^2) 
@@ -192,8 +192,8 @@ subject to reactive_f_rec_p {(l,n,m) in branch_from}:
 subject to reactive_t_rec_p {(l,n,m) in branch_to}:
  Q_p[l,n,m] = -(Vd_p[n]^2+Vq_p[n]^2)*(bl[l]+bl_to[l]) 
 + (
-  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
-+ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
+  ( bl[l]*tr[l]-gl[l]*ti[l] )*(Vd_p[n]*Vd_p[m]+Vq_p[n]*Vq_p[m]) 
++ ( gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_p[n]*Vq_p[m]-Vq_p[n]*Vd_p[m]) )/tap[l]^2;
 
 
 
@@ -208,8 +208,8 @@ subject to power_f_rec_f {t in time_MPC, (l,n,m) in branch_from, sc in scen}:
 subject to power_t_rec_f {t in time_MPC, (l,n,m) in branch_to, sc in scen}:
  P_f[t,l,n,m,sc] = (Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(gl[l]+gl_to[l])
 + ( 
-  (-gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
-+ ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
+  (-gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( bl[l]*tr[l]-gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
  			
 subject to reactive_f_rec_f {t in time_MPC, (l,n,m) in branch_from, sc in scen}:
  Q_f[t,l,n,m,sc] = -(Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(bl[l]+bl_fr[l])/(tap[l]^2) 
@@ -220,8 +220,8 @@ subject to reactive_f_rec_f {t in time_MPC, (l,n,m) in branch_from, sc in scen}:
 subject to reactive_t_rec_f {t in time_MPC, (l,n,m) in branch_to, sc in scen}:
  Q_f[t,l,n,m,sc] = -(Vd_f[t,n,sc]^2+Vq_f[t,n,sc]^2)*(bl[l]+bl_to[l]) 
 + (
-  ( bl[l]*tr[l]+gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
-+ ( gl[l]*tr[l]-bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
+  ( bl[l]*tr[l]-gl[l]*ti[l] )*(Vd_f[t,n,sc]*Vd_f[t,m,sc]+Vq_f[t,n,sc]*Vq_f[t,m,sc]) 
++ ( gl[l]*tr[l]+bl[l]*ti[l] )*(Vd_f[t,n,sc]*Vq_f[t,m,sc]-Vq_f[t,n,sc]*Vd_f[t,m,sc]) )/tap[l]^2;
 
 
 
